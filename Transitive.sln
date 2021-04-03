@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TransitiveLib", "Transitive
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TransitiveTransitiveLib", "TransitiveTransitiveLib\TransitiveTransitiveLib.csproj", "{B23713F5-C069-4B0F-884E-22B16B300EE4}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HelloNuGet", "HelloNuGet\HelloNuGet.csproj", "{4F409D18-0D96-4CE0-BD4B-AD674436A56F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -31,5 +33,9 @@ Global
 		{B23713F5-C069-4B0F-884E-22B16B300EE4}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B23713F5-C069-4B0F-884E-22B16B300EE4}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B23713F5-C069-4B0F-884E-22B16B300EE4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4F409D18-0D96-4CE0-BD4B-AD674436A56F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4F409D18-0D96-4CE0-BD4B-AD674436A56F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4F409D18-0D96-4CE0-BD4B-AD674436A56F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4F409D18-0D96-4CE0-BD4B-AD674436A56F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
