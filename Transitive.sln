@@ -1,9 +1,35 @@
 
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Binary", "Binary\Binary.csproj", "{0A6FDBAD-04FC-46CE-B10B-B27DEBED61A8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Lib", "Lib\Lib.csproj", "{477CF95F-E664-4365-928A-28CC771AF37F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TransitiveLib", "TransitiveLib\TransitiveLib.csproj", "{EBF27AA9-6867-498E-B0CA-E5ECB464C300}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TransitiveTransitiveLib", "TransitiveTransitiveLib\TransitiveTransitiveLib.csproj", "{B23713F5-C069-4B0F-884E-22B16B300EE4}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{0A6FDBAD-04FC-46CE-B10B-B27DEBED61A8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0A6FDBAD-04FC-46CE-B10B-B27DEBED61A8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0A6FDBAD-04FC-46CE-B10B-B27DEBED61A8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0A6FDBAD-04FC-46CE-B10B-B27DEBED61A8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{477CF95F-E664-4365-928A-28CC771AF37F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{477CF95F-E664-4365-928A-28CC771AF37F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{477CF95F-E664-4365-928A-28CC771AF37F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{477CF95F-E664-4365-928A-28CC771AF37F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EBF27AA9-6867-498E-B0CA-E5ECB464C300}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EBF27AA9-6867-498E-B0CA-E5ECB464C300}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EBF27AA9-6867-498E-B0CA-E5ECB464C300}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EBF27AA9-6867-498E-B0CA-E5ECB464C300}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B23713F5-C069-4B0F-884E-22B16B300EE4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B23713F5-C069-4B0F-884E-22B16B300EE4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B23713F5-C069-4B0F-884E-22B16B300EE4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B23713F5-C069-4B0F-884E-22B16B300EE4}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
