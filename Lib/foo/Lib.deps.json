@@ -1,0 +1,50 @@
+{
+  "runtimeTarget": {
+    "name": ".NETStandard,Version=v2.1/",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETStandard,Version=v2.1": {},
+    ".NETStandard,Version=v2.1/": {
+      "Lib/1.0.0": {
+        "dependencies": {
+          "TransitiveLib": "1.0.0"
+        },
+        "runtime": {
+          "Lib.dll": {}
+        }
+      },
+      "TransitiveLib/1.0.0": {
+        "dependencies": {
+          "TransitiveTransitiveLib": "1.0.0"
+        },
+        "runtime": {
+          "TransitiveLib.dll": {}
+        }
+      },
+      "TransitiveTransitiveLib/1.0.0": {
+        "runtime": {
+          "TransitiveTransitiveLib.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "Lib/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "TransitiveLib/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "TransitiveTransitiveLib/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}
