@@ -31,6 +31,14 @@ namespace Binary
         // const string SdkVersion = "3.1.201";
         const string SdkVersion = "5.0.202";
 
+        static bool VerboseEnabled = false;
+
+        public static void Verbose(string message)
+        {
+            if (!VerboseEnabled) return;
+            Console.WriteLine(message);
+        }
+        
         static async Task Main(string[] args)
         {
             MSBuildLocator.RegisterMSBuildPath($"/usr/local/share/dotnet/sdk/{SdkVersion}/");
@@ -53,26 +61,56 @@ namespace Binary
             {
                 case 1:
                     mnemonic = "restore";
-                    project = "library";
+                    project = "transitive";
                     _cacheFiles = null;
                     break;
                 case 2:
                     mnemonic = "build";
-                    project = "library";
-                    _cacheFiles = new List<string>() {CacheFile("library", "restore")};
+                    project = "transitive";
+                    _cacheFiles = new List<string>() {CacheFile("transitive", "restore")};
                     break;
                 case 3:
                     mnemonic = "restore";
-                    project = "binary";
-                    _cacheFiles = new List<string>() {CacheFile("library", "restore")};
+                    project = "library";
+                    _cacheFiles = new List<string>()
+                    {
+                        CacheFile("transitive", "restore")
+                    };
                     break;
                 case 4:
+                    mnemonic = "build";
+                    project = "library";
+                    _cacheFiles = new List<string>()
+                    {
+                        CacheFile("library", "restore"),
+                        CacheFile("transitive", "build"),
+                    };
+                    break;
+                case 5:
+                    mnemonic = "restore";
+                    project = "binary";
+                    _cacheFiles = new List<string>()
+                    {
+                        CacheFile("transitive", "restore"),
+                        CacheFile("library", "restore")
+                    };
+                    break;
+                case 6:
                     mnemonic = "build";
                     project = "binary";
                     _cacheFiles = new List<string>()
                     {
+                        CacheFile("transitive", "build"),
                         CacheFile("library", "build"),
                         CacheFile("binary", "restore")
+                    };
+                    break;
+                case 7:
+                    mnemonic = "publish";
+                    project = "binary";
+                    _cacheFiles = new List<string>()
+                    {
+                        CacheFile("binary", "build")
                     };
                     break;
             }
@@ -90,6 +128,7 @@ namespace Binary
                 // this one is auto-set by NuGet.targets in Restore when restoring a referenced project. If we don't set it
                 // ahead of time, there will be a cache miss on the restored project.
                 pc.SetGlobalProperty("ExcludeRestorePackageImports", "true");
+                pc.SetGlobalProperty("RestoreRecursive", "false");
             }
                 
             
@@ -102,11 +141,23 @@ namespace Binary
             var projectPath = files.TranslatePath(templatePath);
             var collection = ProjectCollection.GlobalProjectCollection;
             var evaluationContext = EvaluationContext.Create(EvaluationContext.SharingPolicy.Shared);
-            var project = Project.FromFile(projectPath, new ProjectOptions()
+            var projectOptions = new ProjectOptions()
             {
                 ProjectCollection = collection,
                 EvaluationContext = evaluationContext,
-            });
+            };
+            var project = Project.FromFile(projectPath, projectOptions);
+            Console.WriteLine($"Project {projectName} loaded");
+            var name = "ProjectReference";
+            foreach (var item in project.GetItems(name).ToList())
+            {
+                var path = item.GetMetadataValue("FullPath");
+                var dep = Project.FromFile(path, projectOptions);
+                foreach (var tDep in dep.GetItems(name))
+                {
+                    project.AddItemFast(name, tDep.UnevaluatedInclude);
+                }
+            }
             
             Console.WriteLine($"Project {projectName} loaded");
             var outputCacheFile = CacheFile(projectName, mnemonic);
@@ -131,14 +182,19 @@ namespace Binary
             switch (mnemonic)
             {
                 case "restore":
-                    targets = new[] {"_GenerateRestoreProjectPathWalk", "Restore"};
+                    targets = new[] {"Restore"};
                     break;
                 case "build":
                     targets = new[]
                         {"GetTargetFrameworks", "Build", "GetCopyToOutputDirectoryItems", "GetNativeManifest"};
                     break;
+                case "publish":
+                    targets = new[]
+                        {"Publish"};
+                    break;
             }
-
+            
+            
             var data = new BuildRequestData(project.CreateProjectInstance(), targets, null,
                 // replace the existing config that we'll load from cache
                 // not setting this results in MSBuild setting a global unique property to protect against 
@@ -292,10 +348,10 @@ namespace Binary
                 if (path == null) continue;
                 if (!path.Contains(target)) continue;
                 configCount++;
-                Console.WriteLine(path);
+                Verbose(path);
                 pathField.SetValue(config, path.Replace(target, replacement));   
             }
-            Console.WriteLine(configCount);
+            Verbose(configCount.ToString());
         }
 
         private static void FixBuildResults(BuildManager buildManager, bool useOverride, string target, string replacement)
@@ -318,7 +374,7 @@ namespace Binary
             {
                 foreach (var (targetName, targetResult) in buildResult.ResultsByTarget)
                 {
-                    Console.WriteLine(targetName);
+                    Verbose(targetName);
                     foreach (var item in targetResult.Items)
                     {
                         foreach (var name in item.MetadataNames.Cast<string>())
@@ -327,7 +383,7 @@ namespace Binary
 
                             if (meta.Contains(target))
                             {
-                                Console.WriteLine($"==> {name}: {meta}");
+                                Verbose($"==> {name}: {meta}");
                                 targetCount++;
                                 item.SetMetadata(name, meta.Replace(target, replacement));
                             }
@@ -336,7 +392,7 @@ namespace Binary
 
                         if (item.ItemSpec.Contains(target))
                         {
-                            Console.WriteLine(item.ItemSpec);
+                            Verbose(item.ItemSpec);
                             item.ItemSpec = item.ItemSpec.Replace(target, replacement);
                             targetCount++;
                         }
@@ -352,12 +408,31 @@ namespace Binary
     {
         public void Initialize(IEventSource eventSource)
         {
+            var targetOfInterest = "_GetAllRestoreProjectPathItems";
+            var logTasks = false;
             eventSource.TargetStarted += (sender, args) =>
             {
-                if (args.TargetName == "ResolveAssemblyReferences")
+                if (args.TargetName == targetOfInterest)
                 {
+                    logTasks = true;
                 }
             };
+
+            eventSource.TargetFinished += (sender, args) =>
+            {
+                if (args.TargetName == targetOfInterest)
+                {
+                    logTasks = false;
+                }
+            };
+            
+            eventSource.TaskStarted += ((sender, args) =>
+            {
+                if (logTasks)
+                {
+                    
+                }
+            });
         }
 
         public void Shutdown()
