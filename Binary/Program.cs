@@ -1,4 +1,5 @@
-﻿using System;
+﻿#nullable enable
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -6,6 +7,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Reflection;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Microsoft.Build.Definition;
 using Microsoft.Build.Evaluation;
@@ -17,6 +19,8 @@ using Microsoft.Build.Graph;
 using Microsoft.Build.Locator;
 using Microsoft.Build.Logging;
 using Microsoft.Build.Tasks;
+using NuGet.Commands;
+using NuGet.ProjectModel;
 
 namespace Binary
 {
@@ -33,12 +37,12 @@ namespace Binary
 
         static bool VerboseEnabled = false;
 
-        public static void Verbose(string message)
+        public static void Verbose(string? message)
         {
             if (!VerboseEnabled) return;
             Console.WriteLine(message);
         }
-        
+
         static async Task Main(string[] args)
         {
             MSBuildLocator.RegisterMSBuildPath($"/usr/local/share/dotnet/sdk/{SdkVersion}/");
@@ -49,12 +53,18 @@ namespace Binary
         {
             return $"/Users/samh/dev/sandbox/{SandboxId}/{project}/{project}.csproj.{mnemonic}.cache";
         }
-        
+
         private static async Task Build()
         {
             var dirs = Directory.EnumerateDirectories("/Users/samh/dev/sandbox").Single();
             var dir = Path.GetFileNameWithoutExtension(dirs)!;
             SandboxId = Int32.Parse(dir);
+            Environment.CurrentDirectory = Sandbox;
+
+            Environment.SetEnvironmentVariable("NUGET_PACKAGES", Path.Combine(Sandbox, "packages"));
+            Environment.SetEnvironmentVariable("NuGetPackageRoot", Path.Combine(Sandbox, "packages"));
+            Environment.SetEnvironmentVariable("NuGetPackageFolders", Path.Combine(Sandbox, "packages"));
+
             string mnemonic = null;
             string project = null;
             switch (SandboxId)
@@ -82,7 +92,8 @@ namespace Binary
                     project = "library";
                     _cacheFiles = new List<string>()
                     {
-                        CacheFile("library", "restore"),
+                        // CacheFile("library", "restore"),
+                        CacheFile("transitive", "restore"),
                         CacheFile("transitive", "build"),
                     };
                     break;
@@ -114,28 +125,36 @@ namespace Binary
                     };
                     break;
             }
-            
+
             var files = new BazelFileSystem();
             var logger = new ConsoleLogger(LoggerVerbosity.Normal);
             // logger.Parameters = "SHOWPROJECTFILE=TRUE;";
 
+            // globalProjectCollection loads environmentVariables on Get.
+            Environment.SetEnvironmentVariable("ExecRoot", Environment.CurrentDirectory);
             var pc = ProjectCollection.GlobalProjectCollection;
             pc.RegisterLogger(logger);
             pc.RegisterLogger(new BazelLogger());
-            pc.SetGlobalProperty("ImportDirectoryBuildProps", "false");
+            var globalProperties = new Dictionary<string, string>();
+            globalProperties["ImportDirectoryBuildProps"] = "false";
+            // pc.SetGlobalProperty("ImportDirectoryBuildProps", "false");
             if (mnemonic == "restore")
             {
                 // this one is auto-set by NuGet.targets in Restore when restoring a referenced project. If we don't set it
                 // ahead of time, there will be a cache miss on the restored project.
-                pc.SetGlobalProperty("ExcludeRestorePackageImports", "true");
-                pc.SetGlobalProperty("RestoreRecursive", "false");
+                // pc.SetGlobalProperty("ExcludeRestorePackageImports", "true");
+                // pc.SetGlobalProperty("RestoreRecursive", "false");
+                globalProperties["ExcludeRestorePackageImports"] = "true";
+                globalProperties["RestoreRecursive"] = "false";
+                globalProperties["RestoreUseStaticGraphEvaluation"] = "true";
             }
-                
-            
-            await BuildProject(files, project, mnemonic);
+
+
+            await BuildProject(files, project, mnemonic, globalProperties);
         }
 
-        private static Task BuildProject(BazelFileSystem files, string projectName, string mnemonic)
+        private static Task BuildProject(BazelFileSystem files, string projectName, string mnemonic,
+            Dictionary<string, string> globalProperties)
         {
             var templatePath = $"/$src/{projectName}/{projectName}.csproj";
             var projectPath = files.TranslatePath(templatePath);
@@ -146,19 +165,36 @@ namespace Binary
                 ProjectCollection = collection,
                 EvaluationContext = evaluationContext,
             };
-            var project = Project.FromFile(projectPath, projectOptions);
-            Console.WriteLine($"Project {projectName} loaded");
-            var name = "ProjectReference";
-            foreach (var item in project.GetItems(name).ToList())
-            {
-                var path = item.GetMetadataValue("FullPath");
-                var dep = Project.FromFile(path, projectOptions);
-                foreach (var tDep in dep.GetItems(name))
-                {
-                    project.AddItemFast(name, tDep.UnevaluatedInclude);
-                }
-            }
-            
+
+            var graph = new ProjectGraph(projectPath, globalProperties, collection);
+
+
+            // var entry = graph.EntryPointNodes.Single();
+
+            // if (mnemonic == "restore")
+            // {
+            //     return Restore(entry.ProjectInstance);
+            // }
+
+            // var references = graph.ProjectNodes.Except(new[] {entry}).SelectMany(n => n.ProjectReferences);
+            //
+            // // var project = Project.FromFile(projectPath, projectOptions);
+            // // Console.WriteLine($"Project {projectName} loaded");
+            // var name = "ProjectReference";
+            // foreach (var dep in references)
+            // {
+            //     entry.ProjectInstance.AddItem(name, dep.ProjectInstance.FullPath);
+            // }
+            // foreach (var item in entry.ProjectInstance.GetItems(name).ToList())
+            // {
+            //     var path = item.GetMetadataValue("FullPath");
+            //     var dep = Project.FromFile(path, projectOptions);
+            //     foreach (var tDep in dep.GetItems(name))
+            //     {
+            //         project.AddItemFast(name, tDep.UnevaluatedInclude);
+            //     }
+            // }
+
             Console.WriteLine($"Project {projectName} loaded");
             var outputCacheFile = CacheFile(projectName, mnemonic);
 
@@ -171,7 +207,6 @@ namespace Binary
                 IsolateProjects = true,
                 OutputResultsCacheFile = outputCacheFile,
                 InputResultsCacheFiles = _cacheFiles?.ToArray(),
-                
                 // cult-copy
                 ToolsetDefinitionLocations =
                     Microsoft.Build.Evaluation.ToolsetDefinitionLocations.ConfigurationFile |
@@ -193,28 +228,34 @@ namespace Binary
                         {"Publish"};
                     break;
             }
-            
-            
-            var data = new BuildRequestData(project.CreateProjectInstance(), targets, null,
-                // replace the existing config that we'll load from cache
-                // not setting this results in MSBuild setting a global unique property to protect against 
-                // https://github.com/dotnet/msbuild/issues/1748
-                BuildRequestDataFlags.ReplaceExistingProjectInstance
-                );
-            
+
+            var data = new GraphBuildRequestData(graph,
+                targets,
+                null,
+                BuildRequestDataFlags.ReplaceExistingProjectInstance);
+
+            // var data = new BuildRequestData(graph.EntryPointNodes.Single().ProjectInstance,
+            //     targets, null,
+            //     // replace the existing config that we'll load from cache
+            //     // not setting this results in MSBuild setting a global unique property to protect against 
+            //     // https://github.com/dotnet/msbuild/issues/1748
+            //     BuildRequestDataFlags.ReplaceExistingProjectInstance
+            // );
+
             // var directory = Path.GetDirectoryName(data.ProjectFullPath);
             // Directory.SetCurrentDirectory(directory!);
             //
             // var property = typeof(BuildRequestData).GetProperty(nameof(BuildRequestData.ProjectFullPath));
             // // property!.SetValue(data, templatePath);
-            
+
             var buildManager = BuildManager.DefaultBuildManager;
+
             buildManager.BeginBuild(parameters);
             if (_cacheFiles != null)
             {
                 FixPaths(buildManager, true, "/$src", $"/Users/samh/dev/sandbox/{SandboxId}");
             }
-            
+
             var submission = buildManager.PendBuildRequest(data);
 
             var completionSource = new TaskCompletionSource();
@@ -230,8 +271,12 @@ namespace Binary
             {
                 FixPaths(buildManager, false, Sandbox, "/$src");
 
-
                 buildManager.EndBuild();
+
+                if (mnemonic == "restore")
+                {
+                    FixAssetsJson(projectPath);
+                }
 
                 var encoding = new ASCIIEncoding();
                 using var stream = File.Open(outputCacheFile, FileMode.Open);
@@ -287,15 +332,98 @@ namespace Binary
             }
         }
 
+        private static void FixAssetsJson(string projectPath)
+        {
+            var projectDir = Path.GetDirectoryName(projectPath);
+
+            var regex = new Regex(Regex.Escape(Sandbox) + Path.DirectorySeparatorChar + @"([^\""]+)",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
+
+            var projectName = Path.GetFileName(projectPath);
+            var obj = Path.Combine(projectDir, "obj");
+            var filesToKeep = new []{".nuget.g.props", ".nuget.g.targets"}
+                .Select(f => projectName + f)
+                .Append("project.assets.json")
+                .Select(f => Path.Combine(obj, f))
+                .ToHashSet();
+            
+            foreach (var fileName in Directory.EnumerateFiles(obj))
+            {
+                if (!filesToKeep.Contains(fileName))
+                {
+                    File.Delete(fileName);
+                    continue;
+                }
+                
+                var contents = File.ReadAllText(fileName);
+                var replaced = regex.Replace(contents, (match) =>
+                {
+                    // var thisExtension = Path.GetExtension(match.Value);
+                    // if (string.Equals(extension, thisExtension, StringComparison.OrdinalIgnoreCase))
+                    // {
+                    //     // make sure project references 
+                    // }
+
+                    return Path.GetRelativePath(projectDir, match.Value);
+
+                    // var path = match.Groups[1].Value;
+                    // var lastSegment = Path.GetFileName(path).ToLower();
+                    // switch (lastSegment)
+                    // {
+                    //     case "packages":
+                    //     case "nuget.build.config":
+                    //         return Path.GetRelativePath(projectDir, match.Value);
+                    // }
+                    //
+                    // var ext = Path.GetExtension(lastSegment);
+                    // if (ext == extension)
+                    // {
+                    //     var relativeBase = Path.GetRelativePath(projectDir, currentDirectory);
+                    //     var relative = Path.Combine(
+                    //         relativeBase,
+                    //         path);
+                    //     return relative;
+                    // }
+                    //
+                    // return "foo";
+                });
+
+
+                File.WriteAllText(fileName, replaced);
+            }
+        }
+
+        private static async Task Restore(ProjectInstance project)
+        {
+            // var request = new RestoreRequest(
+            //     project.PackageSpec,
+            //     sharedCache,
+            //     restoreArgs.CacheContext,
+            //     clientPolicyContext,
+            //     restoreArgs.Log)
+            // {
+            //     // Set properties from the restore metadata
+            //     ProjectStyle = project.PackageSpec.RestoreMetadata.ProjectStyle,
+            //     //  Project.json is special cased to put assets file and generated .props and targets in the project folder
+            //     RestoreOutputPath = "obj",
+            //     DependencyGraphSpec = projectDgSpec,
+            //     MSBuildProjectExtensionsPath = projectPackageSpec.RestoreMetadata.OutputPath,
+            //     AdditionalMessages = projectAdditionalMessages
+            // };
+            // var restoreCommand = new RestoreCommand(restoreRequest);
+            // await restoreCommand.ExecuteAsync();
+        }
+
         private static void FixPaths(BuildManager buildManager, bool useOverride, string target, string replacement)
         {
             FixConfigResults(buildManager, useOverride, target, replacement);
             FixBuildResults(buildManager, useOverride, target, replacement);
         }
-        
+
         private static void FixConfigResults(BuildManager buildManager, bool isRead, string target, string replacement)
         {
-            var cacheField = typeof(BuildManager).GetField("_configCache", BindingFlags.NonPublic | BindingFlags.Instance);
+            var cacheField =
+                typeof(BuildManager).GetField("_configCache", BindingFlags.NonPublic | BindingFlags.Instance);
             var cache = cacheField!.GetValue(buildManager);
 
             object underlyingCache = null;
@@ -309,7 +437,7 @@ namespace Binary
             {
                 var field =
                     cache!.GetType().GetProperty("CurrentCache", BindingFlags.Public | BindingFlags.Instance);
-                
+
                 underlyingCache = field == null ? cache : field!.GetValue(cache);
             }
 
@@ -317,7 +445,7 @@ namespace Binary
             FieldInfo pathField = null;
             FieldInfo metadataPathField = null;
             var configCount = 0;
-            
+
             var configIdsByMetadataField = underlyingCache.GetType().GetField("_configurationIdsByMetadata",
                 BindingFlags.NonPublic | BindingFlags.Instance);
             var configurationIdsByMetadata = configIdsByMetadataField.GetValue(underlyingCache) as IDictionary;
@@ -326,35 +454,39 @@ namespace Binary
             var i = 0;
             foreach (DictionaryEntry entry in configurationIdsByMetadata)
                 entries[i++] = entry;
-            
+
 
             // we can't modify the dictionary in the foreach above, so do it after the fact
             foreach (var entry in entries)
             {
                 var metadata = entry.Key;
                 var configId = entry.Value;
-                metadataPathField ??= metadata.GetType().GetField("_projectFullPath", BindingFlags.NonPublic | BindingFlags.Instance);
+                metadataPathField ??= metadata.GetType()
+                    .GetField("_projectFullPath", BindingFlags.NonPublic | BindingFlags.Instance);
                 configurationIdsByMetadata.Remove(metadata);
                 metadataPathField!.SetValue(metadata,
-                    ((string)metadataPathField.GetValue(metadata))!
+                    ((string) metadataPathField.GetValue(metadata))!
                     .Replace(target, replacement));
                 configurationIdsByMetadata[metadata] = configId;
             }
-            
+
             foreach (var config in underlyingCache as IEnumerable<object>)
             {
-                pathField ??= config.GetType().GetField("_projectFullPath", BindingFlags.NonPublic | BindingFlags.Instance);
+                pathField ??= config.GetType()
+                    .GetField("_projectFullPath", BindingFlags.NonPublic | BindingFlags.Instance);
                 var path = pathField!.GetValue(config) as string;
                 if (path == null) continue;
                 if (!path.Contains(target)) continue;
                 configCount++;
                 Verbose(path);
-                pathField.SetValue(config, path.Replace(target, replacement));   
+                pathField.SetValue(config, path.Replace(target, replacement));
             }
+
             Verbose(configCount.ToString());
         }
 
-        private static void FixBuildResults(BuildManager buildManager, bool useOverride, string target, string replacement)
+        private static void FixBuildResults(BuildManager buildManager, bool useOverride, string target,
+            string replacement)
         {
             var cacheField =
                 typeof(BuildManager).GetField("_resultsCache", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -425,12 +557,11 @@ namespace Binary
                     logTasks = false;
                 }
             };
-            
+
             eventSource.TaskStarted += ((sender, args) =>
             {
                 if (logTasks)
                 {
-                    
                 }
             });
         }
